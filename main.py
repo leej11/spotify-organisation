@@ -1,21 +1,22 @@
 # https://spotipy.readthedocs.io/en/2.17.1/
-
+from typing import List
 import spotipy
 from spotipy.oauth2 import SpotifyOAuth
 from datetime import datetime
 import pandas as pd
 
 
-def create_spotipy_authed_instance(scope: str):
-    return spotipy.Spotify(auth_manager=SpotifyOAuth(scope=scope))
+def create_spotipy_authed_instance(scopes: List[str]):
+    return spotipy.Spotify(auth_manager=SpotifyOAuth(scope=scopes))
 
 
 def get_user_saved_tracks(limit: int = 20):
+    """
+    Note: The docs say the maximum limit = 50.
 
-    #### Scopes
-    # - https://developer.spotify.com/documentation/general/guides/scopes/#user-library-read
-    # Create spotipy.Spotify instance
-    sp = create_spotipy_authed_instance('user-library-read')
+    :param limit:
+    :return:
+    """
 
     # Call the user saved tracks method
     saved_tracks = sp.current_user_saved_tracks(limit=limit)
@@ -54,7 +55,6 @@ def create_new_playlist(
         collborative: bool = False,
         description: str = '',
 ):
-    sp = create_spotipy_authed_instance('playlist-modify-public')
 
     sp.user_playlist_create(
         user=sp.current_user()['id'],
@@ -66,7 +66,7 @@ def create_new_playlist(
 
 
 def get_playlists():
-    sp = create_spotipy_authed_instance('playlist-read-private')
+
     playlists = sp.current_user_playlists()
     playlists_dict = {}
 
@@ -83,36 +83,77 @@ def get_playlists():
 
 if __name__ == '__main__':
 
+    # Spotify Authorisation with all scopes
+    sp = create_spotipy_authed_instance(
+        [
+            'user-library-read', # We use this to read my saved tracks library
+            'playlist-read-private', # To read all my playlists I've created
+            'playlist-modify-public', # To create, and modify my playlists
+        ]
+    )
+
     # Get a list of all my saved tracks
-    songs = get_user_saved_tracks()
+    songs = get_user_saved_tracks(49)
 
     created_playlists = []
+
+    # Get the list of all my playlists before creating any new ones
+    playlists = get_playlists()
 
     # For each distinct YearMonth that I've saved songs in, create an associated playlist
     for yearmonth, frame in songs.groupby('YearMonth Added'):
 
-        create_new_playlist(
-            f'{yearmonth}-python-test',
-            description=f'My test playlist using python for: {yearmonth}',
-        )
-        created_playlists.append(f'{yearmonth}-python-test')
+        playlist = f"{yearmonth}-python-test"
+
+        if playlist in playlists.index.values:
+            print(f"Playlist {yearmonth} already exists")
+
+        else:
+            create_new_playlist(
+                playlist,
+                description=f'My test playlist using python for: {yearmonth}',
+            )
+            created_playlists.append(f'{yearmonth}-python-test')
 
     # Get the list of all my playlists, so I can get their IDs
-    playlists = get_playlists()
+    updated_list_of_playlists = get_playlists()
 
     # Add the songs to the associated YearMonth playlist
     for yearmonth, frame in songs.groupby('YearMonth Added'):
 
         playlist = f"{yearmonth}-python-test"
 
-        if playlist in playlists.index.values:
-            print(f"Playlist {yearmonth} exists")
-
-            sp = create_spotipy_authed_instance('playlist-modify-public')
+        # If it's a newly created playlist, just add all the items
+        if playlist in created_playlists:
 
             sp.playlist_add_items(
                 playlist_id=playlists.loc[playlist]['uri'],
                 items=list(frame.ID.values),
             )
+
+        elif playlist in updated_list_of_playlists.index.values:
+
+            # Read current contents of playlist
+            current_playlist_details = sp.playlist_items(
+                playlist_id=playlists.loc[playlist]['uri'],
+            )
+
+            current_playlist_track_ids = [
+                item['track']['id'] for item in current_playlist_details['items']
+            ]
+
+            # Determine tracks not already in playlist (set diff)
+            new_tracks = list(
+                set(frame.ID.values).difference(current_playlist_track_ids)
+            )
+
+            if new_tracks:
+                sp.playlist_add_items(
+                    playlist_id=playlists.loc[playlist]['uri'],
+                    items=new_tracks,
+                )
+
+            else:
+                print("No new tracks to add.")
 
     print("Completed YearMonth playlist creation")
