@@ -4,7 +4,15 @@ import spotipy
 from spotipy.oauth2 import SpotifyOAuth
 from datetime import datetime
 import pandas as pd
+from math import floor
 
+
+def cumilative_sum(lst):
+    total, result = 0, []
+    for ele in lst:
+        result.append(total)
+        total += ele
+    return result
 
 def create_spotipy_authed_instance(scopes: List[str]):
     return spotipy.Spotify(auth_manager=SpotifyOAuth(scope=scopes))
@@ -12,18 +20,30 @@ def create_spotipy_authed_instance(scopes: List[str]):
 
 def get_user_saved_tracks(limit: int = 20):
     """
-    Note: The docs say the maximum limit = 50.
+    Note: The docs say the maximum limit = 50. Therefore if limit > 50, I will loop the
+    api call :D
 
     :param limit:
     :return:
     """
 
-    # Call the user saved tracks method
-    saved_tracks = sp.current_user_saved_tracks(limit=limit)
+    saved_tracks = []
+
+    number_of_full_calls, remainder = divmod(limit, 50)
+    limit_calls = [50] * number_of_full_calls
+    if remainder > 0:
+        limit_calls = limit_calls + [remainder]
+    offsets = cumilative_sum(limit_calls)
+
+    for i in range(len(limit_calls)):
+        # Call the user saved tracks method
+        tracks = sp.current_user_saved_tracks(limit=limit_calls[i], offset=limit_calls[i])['items']
+        saved_tracks += tracks
+
 
     songs_dict = {}
 
-    for idx, item in enumerate(saved_tracks['items']):
+    for idx, item in enumerate(saved_tracks):
         track = item['track']
         artist_name = track['artists'][0]['name']
         track_name = track['name']
@@ -93,7 +113,7 @@ if __name__ == '__main__':
     )
 
     # Get a list of all my saved tracks
-    songs = get_user_saved_tracks(49)
+    songs = get_user_saved_tracks(200)
 
     created_playlists = []
 
